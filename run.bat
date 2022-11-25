@@ -1,1 +1,1 @@
-app\kit\kit.exe --ext-folder exts --enable omni.hello.world
+app\kit\omni.app.dev.bat --ext-folder exts --enable omni.hello.world
