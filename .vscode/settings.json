@@ -337,6 +337,8 @@
     "python.formatting.blackArgs": ["--line-length", "120"],
 
     // Use flake8 for linting
+    // https://code.visualstudio.com/docs/python/linting
     "python.linting.pylintEnabled": false,
     "python.linting.flake8Enabled": true,
+    "python.linting.flake8Args": ["--ignore=E501", "--verbose"]
 }

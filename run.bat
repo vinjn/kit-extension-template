@@ -1,0 +1,1 @@
+app\kit\kit.exe --ext-folder exts --enable omni.hello.world
