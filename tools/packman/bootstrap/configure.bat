@@ -1,4 +1,4 @@
-:: Copyright 2019 NVIDIA CORPORATION
+:: Copyright 2019-2023 NVIDIA CORPORATION
 ::
 :: Licensed under the Apache License, Version 2.0 (the "License");
 :: you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 :: See the License for the specific language governing permissions and
 :: limitations under the License.
 
-set PM_PACKMAN_VERSION=6.33.2
+set PM_PACKMAN_VERSION=7.31
 
 :: Specify where packman command is rooted
 set PM_INSTALL_PATH=%~dp0..
@@ -48,7 +48,7 @@ echo.
 :: that may be needed in the path
 :ENSURE_DIR
 if not exist "%PM_PACKAGES_ROOT%" (
-	echo Creating directory %PM_PACKAGES_ROOT%
+	echo Creating packman packages cache at %PM_PACKAGES_ROOT%
 	mkdir "%PM_PACKAGES_ROOT%"
 )
 if %errorlevel% neq 0 ( goto ERROR_MKDIR_PACKAGES_ROOT )
@@ -59,7 +59,7 @@ if defined PM_PYTHON_EXT (
 	goto PACKMAN
 )
 
-set PM_PYTHON_VERSION=3.7.9-windows-x86_64
+set PM_PYTHON_VERSION=3.10.18-nv1-windows-x86_64
 set PM_PYTHON_BASE_DIR=%PM_PACKAGES_ROOT%\python
 set PM_PYTHON_DIR=%PM_PYTHON_BASE_DIR%\%PM_PYTHON_VERSION%
 set PM_PYTHON=%PM_PYTHON_DIR%\python.exe
@@ -91,15 +91,27 @@ if %errorlevel% neq 0 (
 if exist "%PM_PYTHON%" (
     call :CLEAN_UP_TEMP_FOLDER
     goto PACKMAN
-) else (
-    if exist "%PM_PYTHON_DIR%" ( rd /s /q "%PM_PYTHON_DIR%" > nul )
+) 
+
+:: Clean out broken PM_PYTHON_DIR if it exists
+if exist "%PM_PYTHON_DIR%" (
+    call :REMOVE_DIR "%PM_PYTHON_DIR%"
+    if errorlevel 1 (
+        call :CLEAN_UP_TEMP_FOLDER
+        goto ERROR
+    )
 )
 
-:: Perform atomic rename
-rename "%TEMP_FOLDER_NAME%" "%PM_PYTHON_VERSION%" 1> nul
-:: Failure during move, need to clean up and abort
+:: Perform atomic move (allowing overwrite, /y)
+move /y "%TEMP_FOLDER_NAME%" "%PM_PYTHON_DIR%" 1> nul
+:: Verify that python.exe is now where we expect
+if exist "%PM_PYTHON%" goto PACKMAN
+
+:: Wait a second and try again (can help with access denied weirdness)
+timeout /t 1 /nobreak 1> nul
+move /y "%TEMP_FOLDER_NAME%" "%PM_PYTHON_DIR%" 1> nul
 if %errorlevel% neq 0 (
-    echo !!! Error renaming python !!!
+    echo !!! Error moving python %TEMP_FOLDER_NAME% -> %PM_PYTHON_DIR% !!!
     call :CLEAN_UP_TEMP_FOLDER
     goto ERROR
 )
@@ -112,9 +124,15 @@ if defined PM_MODULE_DIR_EXT (
     set PM_MODULE_DIR=%PM_PACKAGES_ROOT%\packman-common\%PM_PACKMAN_VERSION%
 )
 
-set PM_MODULE=%PM_MODULE_DIR%\packman.py
+set PM_MODULE=%PM_MODULE_DIR%\run.py
 
-if exist "%PM_MODULE%" goto ENSURE_7ZA
+if exist "%PM_MODULE%" goto END
+
+:: Clean out broken PM_MODULE_DIR if it exists
+if exist "%PM_MODULE_DIR%" (
+    call :REMOVE_DIR "%PM_MODULE_DIR%"
+    if errorlevel 1 goto :ERROR
+)
 
 set PM_MODULE_PACKAGE=packman-common@%PM_PACKMAN_VERSION%.zip
 for /f "delims=" %%a in ('powershell -ExecutionPolicy ByPass -NoLogo -NoProfile -File "%~dp0\generate_temp_file_name.ps1"') do set TEMP_FILE_NAME=%%a
@@ -134,19 +152,6 @@ if %errorlevel% neq 0 (
 
 del "%TARGET%"
 
-:ENSURE_7ZA
-set PM_7Za_VERSION=16.02.4
-set PM_7Za_PATH=%PM_PACKAGES_ROOT%\7za\%PM_7ZA_VERSION%
-if exist "%PM_7Za_PATH%" goto END
-set PM_7Za_PATH=%PM_PACKAGES_ROOT%\chk\7za\%PM_7ZA_VERSION%
-if exist "%PM_7Za_PATH%" goto END
-
-"%PM_PYTHON%" -S -s -u -E "%PM_MODULE%" pull "%PM_MODULE_DIR%\deps.packman.xml"
-if %errorlevel% neq 0 (
-    echo !!! Error fetching packman dependencies !!!
-    goto ERROR
-)
-
 goto END
 
 :ERROR_MKDIR_PACKAGES_ROOT
@@ -158,13 +163,26 @@ echo.
 echo Then launch a new command console for the changes to take effect and run packman command again.
 exit /B %errorlevel%
 
+:REMOVE_DIR
+rd /s /q "%~1" > nul
+if exist "%~1" (
+    echo !!! Error removing corrupt directory %~1 !!!
+    echo !!! Please remove this path manually !!!
+    exit /B 1
+)
+exit /B 0
+
 :ERROR
 echo !!! Failure while configuring local machine :( !!!
-exit /B %errorlevel%
+exit /B 1
 
 :CLEAN_UP_TEMP_FOLDER
-rd /S /Q "%TEMP_FOLDER_NAME%"
-exit /B
+rd /S /Q "%TEMP_FOLDER_NAME%" > nul
+if exist "%TEMP_FOLDER_NAME%" (
+    echo !!! Error removing temporary directory %TEMP_FOLDER_NAME% !!!
+    exit /B 1
+)
+exit /B 0
 
 :CREATE_PYTHON_BASE_DIR
 :: We ignore errors and clean error state - if two processes create the directory one will fail which is fine
